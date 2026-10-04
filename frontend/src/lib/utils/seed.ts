@@ -5,10 +5,22 @@
  */
 import type { PianoRow, TuningRow, VoicingRow, EnvironmentRow, ReminderRow } from './db';
 import { db, ROW_REVISION } from './db';
+import { snapshotTuning, type TuningVersion } from '$lib/types/tuning';
 
 function rev<T>(row: T): T & { revision: number; createdAt: number; updatedAt: number } {
   const now = Date.now();
   return { ...row, revision: ROW_REVISION, createdAt: now, updatedAt: now };
+}
+
+/** 演示调律录入时的字段（不含时间戳与版本链） */
+type SeedTuning = Omit<TuningRow, 'revision' | 'createdAt' | 'updatedAt' | 'version' | 'versions'>;
+/** 补初版版本链后的演示调律 */
+type VersionedSeedTuning = SeedTuning & { version: number; versions: TuningVersion[] };
+
+/** 为演示调律记录补初版版本链（v1） */
+function versioned(row: SeedTuning): VersionedSeedTuning {
+  const now = Date.now();
+  return { ...row, version: 1, versions: [snapshotTuning(row, 1, now, '初版')] };
 }
 
 const PIANOS: Array<Omit<PianoRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
@@ -17,7 +29,7 @@ const PIANOS: Array<Omit<PianoRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
   { id: 'pn-003', brand: '珠江', model: 'UP118', serialNo: 'ZJ-1180621', type: '立式', venue: '家庭', purchaseYear: 2012, state: '待修' }
 ];
 
-const TUNINGS: Array<Omit<TuningRow, 'revision' | 'createdAt' | 'updatedAt'>> = [
+const TUNINGS: SeedTuning[] = [
   {
     id: 'tn-001',
     pianoId: 'pn-001',
@@ -75,7 +87,7 @@ const REMINDERS: Array<Omit<ReminderRow, 'revision' | 'createdAt' | 'updatedAt'>
 export async function seedDatabase(): Promise<void> {
   await db.transaction('rw', [db.pianos, db.tunings, db.voicings, db.environments, db.reminders], async () => {
     await db.pianos.bulkPut(PIANOS.map(rev));
-    await db.tunings.bulkPut(TUNINGS.map(rev));
+    await db.tunings.bulkPut(TUNINGS.map(versioned).map(rev));
     await db.voicings.bulkPut(VOICINGS.map(rev));
     await db.environments.bulkPut(ENVIRONMENTS.map(rev));
     await db.reminders.bulkPut(REMINDERS.map(rev));
