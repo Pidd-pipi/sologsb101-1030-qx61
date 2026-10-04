@@ -22,6 +22,12 @@ export interface CentsSummary {
   zones: ZoneDistribution | null;
   /** 是否需要二次复调 */
   needsRepitch: boolean;
+  /** 最近一次调律记录 id */
+  latestTuningId: string | null;
+  /** 最近一次调律的当前版本号（更正后自动跟随新版本） */
+  latestVersion: number;
+  /** 最近一次调律被更正的次数（版本号 - 1） */
+  correctionCount: number;
 }
 
 /** 空小结：没有调律记录时使用 */
@@ -32,14 +38,17 @@ export const EMPTY_SUMMARY: CentsSummary = {
   lastTuningDate: '—',
   pitchDropCents: 0,
   zones: null,
-  needsRepitch: false
+  needsRepitch: false,
+  latestTuningId: null,
+  latestVersion: 0,
+  correctionCount: 0
 };
 
 /** 纯函数版派生：按钢琴 id 汇总（页面逐行统计时直接调用） */
 export function summarizeCents(tunings: TuningRow[], pianoId: string): CentsSummary {
   const own = tunings
     .filter((item) => item.pianoId === pianoId)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt - a.updatedAt);
   if (own.length === 0) return { ...EMPTY_SUMMARY };
   const latest = own[0];
   return {
@@ -49,7 +58,10 @@ export function summarizeCents(tunings: TuningRow[], pianoId: string): CentsSumm
     lastTuningDate: latest.date,
     pitchDropCents: centsFromStandardPitch(latest.basePitchHz),
     zones: zoneDistribution(latest.zones),
-    needsRepitch: latest.pitchRaised || needRepitchByCents(latest.avgDeviationCents, latest.maxDeviationCents)
+    needsRepitch: latest.pitchRaised || needRepitchByCents(latest.avgDeviationCents, latest.maxDeviationCents),
+    latestTuningId: latest.id,
+    latestVersion: latest.version,
+    correctionCount: Math.max(0, latest.version - 1)
   };
 }
 

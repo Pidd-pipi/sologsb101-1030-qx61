@@ -45,7 +45,7 @@ docker compose up -d --build      # 代码改动后重新构建
 | 构建工具 | Vite 6 | 开发服务器端口 22830 |
 | 状态管理 | Svelte store（`writable` / `derived`） | `pianoStore` / `tuningStore` / `voicingStore` / `environmentStore` / `reminderStore` |
 | 路由 | svelte-spa-router 5（hash 路由） | 路由表在 `src/lib/router/index.ts` |
-| 本地存储 | Dexie 4（IndexedDB 封装） | 库名 `gbpianotune-db`，含结构版本号与 upgrade 迁移 |
+| 本地存储 | Dexie 4（IndexedDB 封装） | 库名 `gbpianotune-db`，含结构版本号与 upgrade 迁移（v1→v2 自动回填调律版本链） |
 | 容器化 | Docker 多阶段构建：`node:20-alpine` → `nginx:alpine` | 构建阶段执行类型检查与打包，运行阶段仅托管静态产物 |
 
 ---
@@ -68,7 +68,7 @@ npm run check      # 仅做类型检查
 | 路由 | 模块 | 消费模型 | 主要交互 |
 | --- | --- | --- | --- |
 | `/pianos` | 钢琴档案台账 | Piano、Tuning、Reminder | 新建/编辑/删除琴档（删除确认与级联）、按品牌/类型/场所筛选、卡片回显最近调律日期、平均音分偏差与下次建议日期、筛选同步 URL query |
-| `/tunings` | 调律记录 | Tuning、Piano | 录入基准音高与低/中/高音区音分偏差、自动计算平均与最大值、**音区偏差条形图**、超阈值自动标记需复调 |
+| `/tunings` | 调律记录 | Tuning、TuningRevision、Piano | 录入基准音高与低/中/高音区音分偏差、自动计算平均与最大值、**音区偏差条形图**、超阈值自动标记需复调；**确认更正走版本链（前后版本均保留、原记录不删）**，支持查看版本履历与批量更正 |
 | `/voicings` | 整音与维修 | Voicing、Piano | 登记毡槌/击弦机/换弦/踏板事项、按钢琴汇总维修履历、切换计划/已完成（完成回写钢琴状态） |
 | `/environments` | 琴房温湿度记录 | Environment、Piano | 按日期录入温湿度、**超出建议区间（18–26 ℃ / 40–60 %）自动判定并用 Tailwind 高亮超标行**、超标天数统计 |
 | `/reminders` | 调律周期提醒与导出 | Reminder 及全部模型 | 由周期与上次调律日期推算下次建议日期、**超期琴置顶**、按场所批量筛选、单琴档案与整库 JSON 导出导入 |
@@ -92,9 +92,9 @@ sologsb101-1030/
     ├── public/favicon.svg
     └── src/
         ├── main.ts  App.svelte  app.css  vite-env.d.ts
-        ├── lib/types/              # piano.ts tuning.ts voicing.ts environment.ts reminder.ts filter.ts
+        ├── lib/types/              # piano.ts tuning.ts tuningVersion.ts voicing.ts environment.ts reminder.ts filter.ts
         ├── lib/stores/             # pianoStore tuningStore voicingStore environmentStore reminderStore
-        ├── lib/components/common/  # CentsTag.svelte FilterBar.svelte StatBadge.svelte EmptyPanel.svelte
+        ├── lib/components/common/  # CentsTag.svelte VersionTag.svelte FilterBar.svelte StatBadge.svelte EmptyPanel.svelte
         ├── lib/hooks/              # useCentsDeviation.ts useIdbTable.ts
         ├── lib/utils/              # cents.ts db.ts export.ts seed.ts uuid.ts query.ts
         ├── lib/router/index.ts     # 路由表与导航配置
@@ -105,8 +105,11 @@ sologsb101-1030/
 
 ## 六、数据存储说明
 
-- **IndexedDB 库名**：`gbpianotune-db`（Dexie 封装），结构版本号 `version(1)`，并带 `upgrade()` 迁移逻辑（为历史行补齐行修订号与时间戳）。
-- **分表存储**：`pianos` 钢琴、`tunings` 调律、`voicings` 整音维修、`environments` 琴房环境、`reminders` 周期提醒，共 5 张表；每行带 `revision` / `createdAt` / `updatedAt`。
+- **IndexedDB 库名**：`gbpianotune-db`，结构版本号 `version(2)`：v1 为五张基础表；v2 给 `tunings` 增加版本链字段（`version` / `correctedFrom` / `correctionReason` / `correctedAt`），并新增 `tuningRevisions` 版本快照表，`upgrade()` 会为旧数据回填初版字段与初版快照（原记录不删）。
+- **分表存储**：`pianos` 钢琴、`tunings` 调律（当前生效版本）、`tuningRevisions` 调律前后版本不可变快照（主键 `调律id#版本号`）、`voicings` 整音维修、`environments` 琴房环境、`reminders` 周期提醒，共 6 张表；每行带 `revision` / `createdAt` / `updatedAt`。
+- **调律更正（版本链）**：确认更正时旧版本先写入 `tuningRevisions`（原记录不删），`tunings` 当前行覆盖为新版本（`version + 1`），同一事务内按新版本重算该琴周期提醒；钢琴台账卡片的平均偏差/复调标记、维修履历关联的"最近调律"、下次建议日期均通过 liveQuery 自动跟随新版本。提交携带 `expectedVersion` 做乐观锁：两个标签页同时更正同一条时只有先确认的版本生效，后确认页面收到 `version_conflict`、保留草稿（localStorage 持久化，刷新不丢）并提示版本已变化。
+- **批量更正**：单事务预校验，引用的钢琴不存在、调律记录缺失或字段非法时本次整批不写入（原子回滚）。
+- **旧数据兼容**：旧备份导入或历史库升级时，对没有版本链的调律统一回填 `version=1` 与初版快照；删除钢琴会级联清理其调律与全部版本快照。
 - **首屏自动播种**：`lib/utils/db.ts` 的 `initDatabase()` 在 `pianos` 表为空时调用 `seedDatabase()`，灌入互相引用的三层演示数据（钢琴 → 调律记录 → 维修 / 环境 → 提醒），其中包含 1 台超期琴与 2 条异常环境记录，保证 5 个页面首次打开都有内容；播种幂等，清空后重进会重新播种。
 - **音分换算**：`lib/utils/cents.ts` 提供 `cents = 1200 × log2(f / f0)` 与反算、与标准音 A4 = 440 Hz 的比对、偏差分档（±5 / ±10 / ±20 / ±20 以上）与配色映射。
 - **无后端**：没有 API 服务、没有数据库容器；容器本身无状态，不挂载任何卷。

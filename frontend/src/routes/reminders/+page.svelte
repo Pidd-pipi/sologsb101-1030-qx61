@@ -366,6 +366,7 @@
         <div class="rounded-lg bg-stone-50 px-3 py-2">库名：{DB_NAME}</div>
         <div class="rounded-lg bg-stone-50 px-3 py-2">结构版本：v{DB_SCHEMA_VERSION}</div>
         <div class="rounded-lg bg-stone-50 px-3 py-2">钢琴 / 调律：{counts.pianos ?? 0} / {counts.tunings ?? 0}</div>
+        <div class="rounded-lg bg-stone-50 px-3 py-2">调律版本快照：{counts.tuningRevisions ?? 0}</div>
         <div class="rounded-lg bg-stone-50 px-3 py-2">维修 / 环境：{counts.voicings ?? 0} / {counts.environments ?? 0}</div>
         <div class="rounded-lg bg-stone-50 px-3 py-2">提醒：{counts.reminders ?? 0}</div>
         <div class="rounded-lg bg-stone-50 px-3 py-2">超期琴：{totals.overdue} 台</div>

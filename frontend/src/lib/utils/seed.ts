@@ -1,10 +1,12 @@
 /**
  * 首次打开应用时灌入的演示数据
- * 只在 pianos 表为空时执行。钢琴 → 调律记录 → 维修 / 环境 → 周期提醒 互相引用，
+ * 只在 pianos 表为空时执行。钢琴 → 调律记录（含版本链初版快照）→ 维修 / 环境 → 周期提醒 互相引用，
  * 其中包含 1 台超期琴与 2 条异常环境记录，保证 5 个页面第一次进入都有内容可看。
  */
-import type { PianoRow, TuningRow, VoicingRow, EnvironmentRow, ReminderRow } from './db';
+import type { PianoRow, TuningRow, TuningRevisionRow, VoicingRow, EnvironmentRow, ReminderRow } from './db';
 import { db, ROW_REVISION } from './db';
+import { INITIAL_VERSION } from '$lib/types/tuning';
+import { initialRevisionFromLegacy } from '$lib/types/tuningVersion';
 
 function rev<T>(row: T): T & { revision: number; createdAt: number; updatedAt: number } {
   const now = Date.now();
@@ -27,7 +29,11 @@ const TUNINGS: Array<Omit<TuningRow, 'revision' | 'createdAt' | 'updatedAt'>> = 
     maxDeviationCents: -14.2,
     zones: { bass: -14.2, mid: -5.1, treble: -2.8 },
     technician: '陆师傅',
-    pitchRaised: false
+    pitchRaised: false,
+    version: INITIAL_VERSION,
+    correctedFrom: null,
+    correctionReason: '',
+    correctedAt: null
   },
   {
     id: 'tn-002',
@@ -38,7 +44,11 @@ const TUNINGS: Array<Omit<TuningRow, 'revision' | 'createdAt' | 'updatedAt'>> = 
     maxDeviationCents: 21.4,
     zones: { bass: 6.2, mid: 9.8, treble: 21.4 },
     technician: '顾老师',
-    pitchRaised: true
+    pitchRaised: true,
+    version: INITIAL_VERSION,
+    correctedFrom: null,
+    correctionReason: '',
+    correctedAt: null
   },
   {
     id: 'tn-003',
@@ -49,7 +59,11 @@ const TUNINGS: Array<Omit<TuningRow, 'revision' | 'createdAt' | 'updatedAt'>> = 
     maxDeviationCents: -35,
     zones: { bass: -35, mid: -21.4, treble: -12.6 },
     technician: '陆师傅',
-    pitchRaised: true
+    pitchRaised: true,
+    version: INITIAL_VERSION,
+    correctedFrom: null,
+    correctionReason: '',
+    correctedAt: null
   }
 ];
 
@@ -71,11 +85,14 @@ const REMINDERS: Array<Omit<ReminderRow, 'revision' | 'createdAt' | 'updatedAt'>
   { id: 'rm-003', pianoId: 'pn-003', cycleMonths: 12, lastTuningDate: '2023-11-02', nextDueDate: '2024-11-02', state: '超期' }
 ];
 
-/** 灌入演示数据（钢琴 → 调律 → 维修 / 环境 → 提醒） */
+/** 灌入演示数据（钢琴 → 调律（含初版快照）→ 维修 / 环境 → 提醒） */
 export async function seedDatabase(): Promise<void> {
-  await db.transaction('rw', [db.pianos, db.tunings, db.voicings, db.environments, db.reminders], async () => {
+  const stampedTunings = TUNINGS.map(rev);
+  const revisions: TuningRevisionRow[] = stampedTunings.map((row) => initialRevisionFromLegacy(row));
+  await db.transaction('rw', [db.pianos, db.tunings, db.tuningRevisions, db.voicings, db.environments, db.reminders], async () => {
     await db.pianos.bulkPut(PIANOS.map(rev));
-    await db.tunings.bulkPut(TUNINGS.map(rev));
+    await db.tunings.bulkPut(stampedTunings);
+    await db.tuningRevisions.bulkPut(revisions);
     await db.voicings.bulkPut(VOICINGS.map(rev));
     await db.environments.bulkPut(ENVIRONMENTS.map(rev));
     await db.reminders.bulkPut(REMINDERS.map(rev));

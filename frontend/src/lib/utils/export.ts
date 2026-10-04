@@ -4,6 +4,7 @@
  */
 import type { Piano } from '$lib/types/piano';
 import type { Tuning } from '$lib/types/tuning';
+import type { TuningRevision } from '$lib/types/tuningVersion';
 import type { Voicing } from '$lib/types/voicing';
 import type { Environment } from '$lib/types/environment';
 import type { Reminder } from '$lib/types/reminder';
@@ -18,6 +19,8 @@ export interface PianoArchive {
   exportedAt: string;
   piano: Piano;
   tunings: Tuning[];
+  /** 调律前后版本快照（原记录不删，按版本链导出） */
+  tuningRevisions: TuningRevision[];
   voicings: Voicing[];
   environments: Environment[];
   reminder: Reminder | null;
@@ -30,6 +33,10 @@ export interface PianoArchive {
     abnormalDays: number;
     lastTuningDate: string;
     nextDueDate: string;
+    /** 最近调律的当前版本号 */
+    latestVersion: number;
+    /** 最近调律被更正次数 */
+    correctionCount: number;
   };
 }
 
@@ -47,8 +54,9 @@ function stripRevision<T extends WithRevision>(row: T): T {
 export async function buildPianoArchive(pianoId: string): Promise<PianoArchive> {
   const piano = await db.pianos.get(pianoId);
   if (!piano) throw new Error('钢琴档案不存在');
-  const [allTunings, allVoicings, allEnvironments, reminder] = await Promise.all([
+  const [allTunings, allRevisions, allVoicings, allEnvironments, reminder] = await Promise.all([
     listTunings(),
+    db.tuningRevisions.where('pianoId').equals(pianoId).toArray(),
     listVoicings(),
     listEnvironments(),
     db.reminders.where('pianoId').equals(pianoId).first()
@@ -65,6 +73,9 @@ export async function buildPianoArchive(pianoId: string): Promise<PianoArchive> 
     exportedAt: nowIso(),
     piano: stripRevision(piano),
     tunings: tunings.map(stripRevision),
+    tuningRevisions: allRevisions
+      .filter((item) => tunings.some((tuning) => tuning.id === item.tuningId))
+      .sort((a, b) => a.tuningId.localeCompare(b.tuningId) || a.version - b.version),
     voicings: voicings.map(stripRevision),
     environments: environments.map(stripRevision),
     reminder: reminder ? stripRevision(reminder) : null,
@@ -76,7 +87,9 @@ export async function buildPianoArchive(pianoId: string): Promise<PianoArchive> 
       maintenanceCount: voicings.length,
       abnormalDays: environments.filter((item) => item.abnormal).length,
       lastTuningDate: latest ? latest.date : '—',
-      nextDueDate: reminder ? reminder.nextDueDate : '—'
+      nextDueDate: reminder ? reminder.nextDueDate : '—',
+      latestVersion: latest ? latest.version : 0,
+      correctionCount: latest ? Math.max(0, latest.version - 1) : 0
     }
   };
 }

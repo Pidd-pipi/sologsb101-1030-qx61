@@ -6,6 +6,7 @@
   import StatBadge from '$lib/components/common/StatBadge.svelte';
   import EmptyPanel from '$lib/components/common/EmptyPanel.svelte';
   import CentsTag from '$lib/components/common/CentsTag.svelte';
+  import VersionTag from '$lib/components/common/VersionTag.svelte';
   import { useIdbTable } from '$lib/hooks/useIdbTable';
   import { summarizeCents } from '$lib/hooks/useCentsDeviation';
   import { db, type PianoRow, type ReminderRow, type TuningRow } from '$lib/utils/db';
@@ -192,6 +193,10 @@
             <span class="muted">最近调律 {summary.lastTuningDate}</span>
             {#if summary.tuningCount > 0}
               <CentsTag cents={summary.avgDeviationCents} size="sm" />
+              <VersionTag version={summary.latestVersion} showCorrections={false} />
+              {#if summary.correctionCount > 0}
+                <span class="text-[10px] text-indigo-500">已更正 {summary.correctionCount} 次</span>
+              {/if}
               {#if summary.needsRepitch}
                 <span class="rounded-full bg-rose-100 px-2 py-0.5 text-xs text-rose-700">需复调</span>
               {/if}
